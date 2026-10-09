@@ -1,73 +1,65 @@
 # Báo cáo bài nộp — Day 23 Sensor Fusion Lab
 
-> Điền file này rồi commit. Cách nộp: [hướng dẫn nộp](../SUBMISSION.md).
-
 ## Thông tin học viên
 
-- Họ tên:
-- MSSV:
-- Email:
-- Link repo (fork):
-- Commit hash nộp (`git rev-parse HEAD`):
+- Họ tên: Lê Nguyễn Trâm Anh
+- MSSV: 2A202602760
+- Email: kathyforwork05@gmail.com
+- Link repo (fork): https://github.com/itskathy05/K4-L2L3-DAY23-LeNguyenTramAnh-2A202602760-SensorFusion
+- Commit hash nộp (`git rev-parse HEAD`): điền sau commit cuối
 
-## Tóm tắt kết quả
+## Tóm tắt kết quả official
 
-- `fusion_mode` (bắt buộc `compare`), `frames`, `segment`, `seed`:
-- `detection.precision`, `detection.recall`, `detection.tp/fp/fn`:
-- `tracking.lidar.rmse`, `matches`, `sum_sq_err`, `ghost_track_frames`, `missed_gt_frames`, `mean_confirmed_tracks`:
-- `tracking.fused.rmse`, `matches`, `sum_sq_err`, `ghost_track_frames`, `missed_gt_frames`, `mean_confirmed_tracks`:
-- Giải thích khác biệt hai mode, đọc RMSE cùng số ghép và ghost/miss:
+- `fusion_mode=compare`, frames `0–198` (199 frames), segment `training_segment-1005081002024129653_5313_150_5333_150_with_camera_labels.tfrecord`, seed `0`.
+- Detection: precision `0.97009`, recall `0.70040`, TP/FP/FN `519/16/222`.
+- LiDAR tracking: RMSE `0.15032 m`, matches `502`, sum squared error `11.343649 m²`, ghost track-frames `0`, missed GT `239`, mean confirmed tracks `2.52261`.
+- Fused tracking: RMSE `0.13587 m`, matches `502`, sum squared error `9.266812 m²`, ghost track-frames `0`, missed GT `239`, mean confirmed tracks `2.52261`.
+- Cả hai mode ghép được cùng 502 cặp và có cùng ghost/miss; camera làm tổng bình phương sai số giảm `18.3%`, tương ứng RMSE giảm khoảng `0.01446 m`. Đây là cải thiện hiệu chỉnh vị trí trên các track đã ghép, không phải cải thiện recall/coverage vì detection và số matches không đổi. Detection precision/recall lần lượt là `0.97009/0.70040`; tracking precision `502/(502+0)=1.0`, coverage `502/519=0.96724` ở cả hai mode.
 
-Chạy từ root repo:
+Lệnh chạy từ root repo:
 
 ```bash
 fusion-run-lab --config student/config/paths.yaml --fusion compare --seed 0
 ```
 
-`rmse = sqrt(sum_sq_err/matches)` trên vị trí 3D của confirmed tracks ghép
-một-một với GT xe trong cửa sổ BEV, gate XY **2.0 m**; `null` nếu không có cặp.
-Camera dùng tâm hộp 2D ground-truth FRONT có nhiễu seeded, **không** dùng camera
-detector. Kết quả này không đo hiệu quả một perception system độc lập với GT.
+`rmse = sqrt(sum_sq_err/matches)` trên vị trí 3D của confirmed tracks ghép một-một với GT xe trong cửa sổ BEV, gate XY 2.0 m; `null` nếu không có cặp. Camera dùng tâm hộp 2D ground-truth FRONT có nhiễu seeded, không dùng camera detector. Kết quả fused do đó không đo hiệu quả một perception system độc lập với GT.
 
-`grade_run.log` là JSONL, mỗi `(mode,frame)` đúng một record với các trường:
-`mode`, `frame`, `det_tp`, `det_fp`, `det_fn`, `valid_gt`, `confirmed`, `matches`,
-`sum_sq_err`, `ghosts`, `misses`. Đảm bảo `matches+ghosts==confirmed` và
-`matches+misses==valid_gt`; tổng/trung bình record phải khớp `metrics.json`.
-File per-mode `metrics_lidar.json`, `metrics_fused.json`, `grade_run_lidar.log`,
-`grade_run_fused.log` được giữ để đối chiếu.
+`student/artifacts/grade_run.log` có một record cho mỗi cặp `(mode, frame)`. Invariant `matches+ghosts==confirmed` và `matches+misses==valid_gt` được kiểm tra; tổng và RMSE tái tạo từ log khớp `metrics.json`. Sáu artifacts chính gồm `metrics.json`, `metrics_lidar.json`, `metrics_fused.json`, `grade_run.log`, `grade_run_lidar.log`, `grade_run_fused.log`.
 
-## Giải thích ngắn (Parts E–H — tự viết)
+## Giải thích Parts E–H
 
-1. Khác biệt đo lidar 3D và camera 2D trong EKF (`z`, `R`)?
-2. Vì sao cần gating Mahalanobis trước khi gán?
-3. Pipeline là track-then-fuse hay fuse-then-track? Chỉ ra trên log `fusion-run-lab`.
-4. Nếu camera lệch calibration, triệu chứng gì trên innovation/residual?
-5. Vì sao `associate_and_update(..., sensor)` cần sensor tường minh ở frame rỗng?
-   Giải thích vì sao lidar quyết định score/init/delete còn camera chỉ EKF update.
-6. Nêu điều kiện xác nhận, giữ confirmed sau miss, và điều kiện xóa track.
+1. **Đo EKF:** LiDAR đưa vị trí 3D `[x,y,z]` trong sensor frame vào `z`, với covariance 3×3 `R`; hàm khởi tạo đổi vị trí và covariance sang vehicle frame. Camera đưa pixel `[u,v]` vào `z` và dùng covariance ảnh 2×2 từ `sigma_cam_i²`, `sigma_cam_j²`. Mỗi sensor có hàm quan sát/Jacobian riêng nên EKF dùng `S=HPHᵀ+R` tương ứng. Xem `student/workspace/kalman.py`, `camera_fusion.py` và `track_management.py`.
 
-## Bonus (không bắt buộc)
+2. **Mahalanobis gate:** khoảng cách Euclid không xét uncertainty và scale khác nhau giữa các sensor. Squared Mahalanobis dùng innovation covariance `S`, rồi so với phân vị χ² theo số chiều đo (`gating_threshold`). Gate loại cặp không hợp lý trước greedy assignment, ngăn một measurement ngoại lai cập nhật sai track. Với cặp ngoài FOV, phép chiếu/distance không được gọi.
 
-Liệt kê phần bonus đã làm, file bằng chứng trong `student/bonus/` và kết quả chính
-(xem [RUBRIC.md](../RUBRIC.md) mục 2). Không làm thì ghi "Không".
+3. **Track-then-fuse:** mỗi frame có một tracker chung; runtime predict một lần, ghép/update LiDAR (`AssocL`), rồi ghép/update camera (`AssocC`) trên cùng tracks. Camera refine state sau LiDAR. Track được tạo, tính score, xác nhận và xóa theo lượt LiDAR. Thứ tự này thể hiện trong `docs/HUONG_DAN_KY_THUAT.md` §2.3 và các lời gọi `associate_and_update` trong runtime; log grading lưu kết quả sau từng frame/mode.
 
-- 
+4. **Calibration lệch:** projection camera không còn khớp, thường làm innovation pixel tăng hoặc có đuôi lớn; gate χ² sẽ tăng số camera measurement bị loại/unmatched. Update sai nhưng vẫn qua gate có thể kéo trạng thái khỏi vị trí đúng, làm RMSE tăng. Trong thí nghiệm alternate, accepted innovation median tăng từ `19.57 px` ở 0° lên `33.25 px` ở 1°; số camera update giảm `946→304` và RMSE tăng `0.37115→0.37484 m`. Các candidate innovation gồm mọi cặp trong FOV nên không nhất thiết tăng đơn điệu; median/p95 của các update được chấp nhận cho thấy residual thực tế rõ hơn.
 
-## Khai báo sử dụng AI (bắt buộc)
+5. **Sensor tường minh khi frame rỗng:** `associate_and_update(manager, [], filter, sensor)` vẫn phải biết lượt nào kết thúc. Runtime luôn gọi `manage_tracks(unassigned_tracks, unassigned_meas, sensor)`: lượt LiDAR rỗng có thể chấm miss/delete track trong FOV; lượt camera rỗng không được thay đổi score, tạo hoặc xóa track. Không có sensor thì lifecycle không thể phân biệt hai chính sách.
 
-Ghi rõ, kể cả khi không dùng ("Không dùng AI"). Xem [RULES.md](../RULES.md) mục 2.
+6. **Lifecycle:** hit LiDAR cộng `1/window` (tối đa 1), miss trong FOV trừ `1/window`; xác nhận khi `score > confirmed_threshold`. Miss làm giảm score nhưng không đổi trạng thái confirmed. Xóa nếu `P[0,0]` hoặc `P[1,1] > max_P`, hoặc confirmed có score `< delete_threshold`, hoặc track chưa confirmed có score `<=0`. Camera không đổi existence score/lifecycle.
 
-- Công cụ đã dùng (ChatGPT, Copilot, Claude, …):
-- Dùng cho phần nào (hàm, câu hỏi, debug):
-- Cách bạn đã kiểm tra lại (pytest, chạy Waymo, đối chiếu công thức):
+## Bonus
+
+- **CVAT (+3):** `student/bonus/cvat_tracks_alternate.json` chứa track theo frame cùng ID/state/position/size/yaw và cờ ghost; `cvat_annotations_alternate.xml` cùng ảnh `cvat_frames_alternate/frame_000.png` (frame Waymo 53) có annotation GT, LiDAR và fused. Tình huống minh họa là segment alternate dưới perturbation extrinsic yaw `1°`: confirmed track ID 7 không ghép GT được, được gắn nhãn `Ghost track`/`is_ghost=true`. Đây là bằng chứng thí nghiệm của bonus, không phải official run (official có 0 ghost-frame). Bộ ảnh/XML đã sẵn sàng import vào CVAT Online; ảnh chụp màn hình bên trong CVAT chưa có, nên bonus này chưa được xác nhận trọn vẹn.
+- **Camera update visualization (+3):** ba ảnh baseline tại frames 31, 48, 146 trong `student/bonus/visualization_default/` vẽ LiDAR prior, camera-updated posterior, GT, ID và vector dịch chuyển; ảnh alternate nằm trong `visualization_alternate/`.
+- **Calibration sensitivity (+4):** `calibration_results_default.csv`/`calibration_plot_default.png` là default segment; `calibration_results_alternate.csv`/`calibration_plot_alternate.png` là segment phụ. Yaw perturbations giữ pixel measurements/detections và seed cố định, chỉ thay extrinsic khi replay tracker. Ở alternate yaw `0/1/3/5°`, RMSE lần lượt `0.37115/0.37484/0.38830/0.39431 m`; số camera updates `946/304/215/273`; candidate innovation median `295.20/299.57/317.71/344.79 px`; accepted median `19.57/33.25/22.59/20.39 px`; unmatched measurements `4797/5439/5528/5470`; matches `1000/999/1000/999`; ghost frames `0/1/0/0`; missed GT `1534/1535/1534/1535`. Gate loại phần lớn update khi calibration lệch nhưng update sai còn lọt qua có thể làm tracking xấu đi. Summary JSON chứa mean/median/p95 innovation.
+
+## Khai báo sử dụng AI
+
+- Công cụ đã dùng: ChatGPT/Codex.
+- Công cụ đã dùng (ChatGPT, Copilot, Claude, …): ChatGPT/Codex.
+- Dùng để triển khai và rà soát Parts E–H, hỗ trợ debug, viết công cụ phân tích/visualization/CVAT/calibration cho bonus, và soạn báo cáo. Tôi cần tự đọc lại, hiểu và chịu trách nhiệm về nội dung nộp.
+- Đã kiểm tra công thức EKF, FOV, χ² gating và lifecycle trong code; chạy `pytest student/tests -q` (128 passed), chạy official Waymo `compare --seed 0` 199 frame và đối chiếu metrics với grade log.
 
 ## Checklist nộp
 
-- [ ] **Part E–H** trong `workspace/` đã implement; `pytest student/tests -q` không còn `failed`/`xfailed`
-- [ ] Part A–D: không bắt buộc sửa (hoặc ghi chú nếu bạn đã sửa)
-- [ ] Lần chạy chấm điểm: `--fusion compare --seed 0`, `frame_start: 0`, `frame_end: 198`
-- [ ] Đã commit `student/artifacts/metrics*.json` và `student/artifacts/grade_run*.log` (không sửa tay)
-- [ ] Đã điền đủ file này, gồm khai báo AI
-- [ ] Không commit dữ liệu Waymo, weights, `paths.yaml`, API key
-- [ ] `python tools/check_submission.py` báo `KẾT QUẢ: SẴN SÀNG NỘP`
-- [ ] Đã push và nộp link repo + commit hash trên LMS ([hướng dẫn nộp](../SUBMISSION.md))
+- [x] Parts E–H implement; full suite 128 passed, không failed/xfail.
+- [x] Parts A–D giữ nguyên.
+- [x] Official run `compare --seed 0`, frames 0–198.
+- [x] Sáu artifacts official được runner tạo và commit; không sửa tay.
+- [x] Báo cáo và khai báo AI đã điền.
+- [x] Dataset, weights, `paths.yaml`, `.env` không commit.
+- [ ] `python tools/check_submission.py` báo `KẾT QUẢ: SẴN SÀNG NỘP` sau commit cuối.
+- [ ] Đã push và nộp link repo + commit hash lên LMS.
