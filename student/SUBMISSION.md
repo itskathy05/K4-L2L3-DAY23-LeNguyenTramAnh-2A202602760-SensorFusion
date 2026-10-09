@@ -5,7 +5,7 @@
 - Họ tên: Lê Nguyễn Trâm Anh
 - MSSV: 2A202602760
 - Email: kathyforwork05@gmail.com
-- Link repo (fork): https://github.com/itskathy05/K4-L2L3-DAY23-LeNguyenTramAnh-2A202602760-SensorFusion
+- Link repo (fork): https://github.com/itskathy05/K4-L3-DAY23-LeNguyenTramAnh-2A202602760-SensorFusion
 - Commit hash nộp (`git rev-parse HEAD`): điền sau commit cuối
 
 ## Tóm tắt kết quả official
